@@ -1,0 +1,123 @@
+---
+- assert:
+    that:
+      - "ansible_distribution == 'CentOS'"
+      - "ansible_distribution_major_version in ('7')"
+  tags: [ "factorio", "factorio_install" ]
+
+- name: Create directories
+  file:
+    dest: "{{ item }}"
+    state: directory
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: 0755
+  with_items:
+    - /opt/factorio-init
+    - /opt/factorio-updater
+  tags: [ "factorio", "factorio_install", "factorio_download" ]
+
+- name: Add service script for systemd
+  copy:
+    src: factorio-systemd
+    dest: /etc/systemd/system/factorio.service
+    owner: root
+    group: root
+    mode: 0644
+  tags: [ "factorio", "factorio_install" ]
+
+- name: Add sudoers
+  copy:
+    src: factorio-sudoers.d
+    dest: /etc/sudoers.d/factorio
+    owner: root
+    group: root
+    mode: 0644
+    validate: '/usr/sbin/visudo -cf %s'
+  tags: [ "factorio", "factorio_install" ]
+
+- name: Clone 'factorio-init' from GIT
+  git:
+    repo: 'https://github.com/Bisa/factorio-init.git'
+    dest: /opt/factorio-init
+    update: yes
+  tags: [ "factorio", "factorio_install" ]
+
+- name: Clone 'factorio-updater' from GIT
+  git:
+    repo: 'https://github.com/narc0tiq/factorio-updater.git'
+    dest: /opt/factorio-updater
+    update: yes
+  tags: [ "factorio", "factorio_install" ]
+
+#- name: Print mosh version
+#  debug: msg="{{ vars }}"
+
+- name: Download Factorio headless server to /tmp/factorio-{{ factorio_version }}.tar.gz
+  get_url:
+    url: https://www.factorio.com/get-download/{{ factorio_version }}/headless/linux64
+    dest: /tmp/factorio-{{ factorio_version }}.tar.xz
+  tags: [ "factorio", "factorio_install", "factorio_download" ]
+
+- name: Extract Factorio headless server to /opt/factorio
+  unarchive:
+    src: /tmp/factorio-{{ factorio_version }}.tar.xz
+    copy: no
+    dest: /opt
+    creates: /opt/factorio
+  tags: [ "factorio", "factorio_install", "factorio_download" ]
+
+- name: Configure factorio server settings
+  template:
+    src: server-settings.json.factorio.j2
+    dest: /opt/factorio/data/server-settings.json
+    owner: factorio
+    group: factorio
+    mode: 0644
+  notify: restart factorio
+  tags: [ "factorio", "factorio_configure" ]
+  when: factorio_init is defined
+
+- name: Configure factorio map settings
+  template:
+    src: map-settings.json.factorio.j2
+    dest: /opt/factorio/data/map-settings.json
+    owner: factorio
+    group: factorio
+    mode: 0644
+  tags: [ "factorio", "factorio_configure" ]
+  when: factorio_init is defined
+
+- name: Ensure save game directory for Factorio in /opt/factorio/saves exists and anyone can write to it (for easier uploading of save files)
+  file:
+    path: /opt/factorio/saves
+    state: directory
+    mode: 0755
+  tags: [ "factorio", "factorio_install" ]
+
+- name: Make /opt/factorio owned by {{ factorio_user }}
+  file:
+    path: /opt/factorio
+    state: directory
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    recurse: yes
+  tags: [ "factorio", "factorio_install" ]
+
+- name: Create 'factorio-init' config
+  template:
+    src: config.factorio-init.j2
+    dest: /opt/factorio-init/config
+    owner: factorio
+    group: factorio
+    mode: 0644
+  tags: [ "factorio", "factorio_configure" ]
+  when: factorio_init is defined
+
+- name: Ensure factorio is started for CentOS 7
+  systemd:
+     name: factorio
+     state: started
+     enabled: yes
+     daemon_reload: yes
+  tags: [ "factorio", "factorio_start" ]

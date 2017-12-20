@@ -1,0 +1,5 @@
+---
+- name: restart factorio
+  systemd:
+    name=factorio
+    state=restarted
